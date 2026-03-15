@@ -1,0 +1,92 @@
+---
+- name: Install and Configure Splunk Universal Forwarder
+  hosts: lab_nodes
+  become: yes
+  vars:
+    splunk_uf_version: "10.0.1"
+    splunk_uf_build: "c486717c322b"
+    splunk_uf_url: "https://download.splunk.com/products/universalforwarder/releases/{{ splunk_uf_version }}/linux/splunkforwarder-{{ splunk_uf_version }}-{{ splunk_uf_build }}-linux-arm64.tgz"
+    splunk_uf_home: /opt/splunkforwarder
+    splunk_admin_password: "ChangeMeNow1!"
+    splunk_indexer_host: "10.89.0.10"
+    splunk_indexer_port: "9997"
+    ping_log_dir: /var/log/ping_logs
+    splunk_index: "ping_data"
+
+  tasks:
+    - name: Check if Splunk UF is already installed
+      stat:
+        path: "{{ splunk_uf_home }}/bin/splunk"
+      register: splunk_installed
+
+    - name: Download Splunk Universal Forwarder
+      get_url:
+        url: "{{ splunk_uf_url }}"
+        dest: /tmp/splunkforwarder.tgz
+        mode: "0644"
+      when: not splunk_installed.stat.exists
+
+    - name: Extract Splunk Universal Forwarder
+      unarchive:
+        src: /tmp/splunkforwarder.tgz
+        dest: /opt/
+        remote_src: yes
+      when: not splunk_installed.stat.exists
+
+    - name: Clean up download
+      file:
+        path: /tmp/splunkforwarder.tgz
+        state: absent
+
+    - name: Accept license and set admin password
+      command: >
+        {{ splunk_uf_home }}/bin/splunk start
+        --accept-license --answer-yes
+        --accept-sgt-current-at-splunk-com
+        --seed-passwd {{ splunk_admin_password }}
+        --no-prompt
+      when: not splunk_installed.stat.exists
+
+    - name: Configure forward server
+      command: >
+        {{ splunk_uf_home }}/bin/splunk add forward-server
+        {{ splunk_indexer_host }}:{{ splunk_indexer_port }}
+        -auth admin:{{ splunk_admin_password }}
+      register: fwd_result
+      failed_when: fwd_result.rc != 0 and 'already exists' not in fwd_result.stderr
+      changed_when: "'already exists' not in fwd_result.stderr"
+
+    - name: Create inputs.conf for ping logs
+      copy:
+        dest: "{{ splunk_uf_home }}/etc/system/local/inputs.conf"
+        content: |
+          [monitor://{{ ping_log_dir }}/ping_results.log]
+          disabled = false
+          index = {{ splunk_index }}
+          sourcetype = ping_results
+          host = {{ inventory_hostname }}
+        mode: "0644"
+
+    - name: Create outputs.conf
+      copy:
+        dest: "{{ splunk_uf_home }}/etc/system/local/outputs.conf"
+        content: |
+          [tcpout]
+          defaultGroup = splunk-indexer
+
+          [tcpout:splunk-indexer]
+          server = {{ splunk_indexer_host }}:{{ splunk_indexer_port }}
+        mode: "0644"
+
+    - name: Restart Splunk UF
+      command: "{{ splunk_uf_home }}/bin/splunk restart"
+      register: restart_result
+      failed_when: restart_result.rc != 0
+
+    - name: Verify Splunk UF is running
+      command: "{{ splunk_uf_home }}/bin/splunk status"
+      register: splunk_status
+
+    - name: Show Splunk UF status
+      debug:
+        var: splunk_status.stdout_lines

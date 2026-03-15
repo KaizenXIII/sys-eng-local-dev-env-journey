@@ -1,0 +1,32 @@
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+# Install SSH server, ping utilities, and dependencies for Splunk UF
+RUN dnf install -y \
+    openssh-server \
+    openssh-clients \
+    iputils \
+    procps-ng \
+    sudo \
+    wget \
+    tar \
+    && dnf clean all
+
+# Configure SSH
+RUN ssh-keygen -A \
+    && mkdir -p /run/sshd \
+    && sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config \
+    && sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config \
+    && echo "root:changeme" | chpasswd
+
+# Create a non-root user for Ansible
+RUN useradd -m -s /bin/bash ansible \
+    && echo "ansible:ansible" | chpasswd \
+    && echo "ansible ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Create directory for ping logs
+RUN mkdir -p /var/log/ping_logs
+
+# Expose SSH port
+EXPOSE 22
+
+CMD ["/usr/sbin/sshd", "-D"]

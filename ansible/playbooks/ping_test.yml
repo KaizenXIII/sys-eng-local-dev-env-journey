@@ -1,0 +1,39 @@
+---
+- name: ICMP Ping Test Between Lab Nodes
+  hosts: lab_nodes
+  become: yes
+  vars:
+    ping_log_dir: /var/log/ping_logs
+    ping_count: 5
+    container_targets:
+      - name: node1
+        ip: "10.89.0.11"
+      - name: node2
+        ip: "10.89.0.12"
+      - name: node3
+        ip: "10.89.0.13"
+
+  tasks:
+    - name: Ensure ping log directory exists
+      file:
+        path: "{{ ping_log_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Run ICMP ping to all other nodes
+      shell: |
+        echo "=== Ping from {{ inventory_hostname }} to {{ item.name }} ({{ item.ip }}) at $(date -u '+%Y-%m-%dT%H:%M:%SZ') ===" >> {{ ping_log_dir }}/ping_results.log
+        ping -c {{ ping_count }} {{ item.ip }} 2>&1 >> {{ ping_log_dir }}/ping_results.log
+        echo "" >> {{ ping_log_dir }}/ping_results.log
+      loop: "{{ container_targets }}"
+      when: item.name != inventory_hostname
+      register: ping_results
+      ignore_errors: yes
+
+    - name: Display ping log contents
+      command: cat {{ ping_log_dir }}/ping_results.log
+      register: log_output
+
+    - name: Show ping results
+      debug:
+        var: log_output.stdout_lines
