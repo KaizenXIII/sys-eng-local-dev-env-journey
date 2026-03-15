@@ -2,16 +2,6 @@
 - name: ICMP Ping Test Between Lab Nodes
   hosts: lab_nodes
   become: yes
-  vars:
-    ping_log_dir: /var/log/ping_logs
-    ping_count: 5
-    container_targets:
-      - name: node1
-        ip: "10.89.0.11"
-      - name: node2
-        ip: "10.89.0.12"
-      - name: node3
-        ip: "10.89.0.13"
 
   tasks:
     - name: Ensure ping log directory exists
@@ -22,18 +12,19 @@
 
     - name: Run ICMP ping to all other nodes
       shell: |
-        echo "=== Ping from {{ inventory_hostname }} to {{ item.name }} ({{ item.ip }}) at $(date -u '+%Y-%m-%dT%H:%M:%SZ') ===" >> {{ ping_log_dir }}/ping_results.log
-        ping -c {{ ping_count }} {{ item.ip }} 2>&1 >> {{ ping_log_dir }}/ping_results.log
-        echo "" >> {{ ping_log_dir }}/ping_results.log
-      loop: "{{ container_targets }}"
-      when: item.name != inventory_hostname
+        LOGFILE="{{ ping_log_dir }}/ping_{{ inventory_hostname }}_$(date -u '+%Y%m%d_%H%M%S').log"
+        echo "=== Ping from {{ inventory_hostname }} to {{ item.key }} ({{ item.value }}) at $(date -u '+%Y-%m-%dT%H:%M:%SZ') ===" >> "$LOGFILE"
+        ping -c {{ ping_count }} {{ item.value }} 2>&1 >> "$LOGFILE"
+        echo "" >> "$LOGFILE"
+      loop: "{{ node_ips | dict2items }}"
+      when: item.key != inventory_hostname
       register: ping_results
       ignore_errors: yes
 
-    - name: Display ping log contents
-      command: cat {{ ping_log_dir }}/ping_results.log
+    - name: Show latest ping log
+      shell: cat "$(ls -t {{ ping_log_dir }}/ping_{{ inventory_hostname }}_*.log | head -1)"
       register: log_output
 
-    - name: Show ping results
+    - name: Display ping results
       debug:
         var: log_output.stdout_lines

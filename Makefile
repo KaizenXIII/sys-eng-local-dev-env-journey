@@ -1,5 +1,5 @@
-.PHONY: all check-ports network build-nodes run-nodes splunk splunk-index \
-       install-uf ping clean stop status help
+.PHONY: all check-ports ssh-keys network build-nodes run-nodes splunk splunk-index \
+       install-uf ping test clean stop restart status help
 
 PODMAN := podman
 ANSIBLE_DIR := ansible
@@ -9,24 +9,30 @@ IMAGE_NAME := lab-rhel9-node
 SPLUNK_IMAGE := docker.io/splunk/splunk:latest
 SPLUNK_NAME := splunk-standalone
 SPLUNK_IP := 10.89.0.10
+SSH_KEY := $(ANSIBLE_DIR)/keys/lab_node
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-all: check-ports network build-nodes run-nodes splunk splunk-index install-uf ping ## Full setup: build everything, configure, and run ping test
+all: check-ports ssh-keys network build-nodes run-nodes splunk splunk-index install-uf ping test ## Full setup end-to-end with validation
 
 check-ports: ## Check if required ports are available
 	@bash $(SCRIPTS_DIR)/check_ports.sh
+
+ssh-keys: ## Generate SSH keypair for Ansible
+	@bash $(SCRIPTS_DIR)/generate_ssh_keys.sh
 
 network: ## Create Podman network for lab nodes
 	@echo "Creating Podman network '$(NETWORK)'..."
 	@$(PODMAN) network create $(NETWORK) --subnet 10.89.0.0/24 2>/dev/null || \
 		echo "Network '$(NETWORK)' already exists."
 
-build-nodes: ## Build the RHEL9 node container image
+build-nodes: ssh-keys ## Build the RHEL9 node container image
 	@echo "Building container image '$(IMAGE_NAME)'..."
-	$(PODMAN) build -t $(IMAGE_NAME) containers/rhel9/
+	$(PODMAN) build -t $(IMAGE_NAME) \
+		--build-arg SSH_PUB_KEY="$$(cat $(SSH_KEY).pub)" \
+		containers/rhel9/
 
 run-nodes: ## Start the 3 lab node containers
 	@echo "Starting lab node containers..."
@@ -60,7 +66,7 @@ splunk: ## Start Splunk standalone container in Podman
 		echo "$(SPLUNK_NAME) already running"
 	@echo "Splunk starting at http://localhost:8000 (admin / ChangeMeNow1!)"
 
-splunk-index: ## Create ping_data index in Splunk
+splunk-index: ## Create ping_data index in Splunk (waits for readiness)
 	@bash $(SCRIPTS_DIR)/setup_splunk_index.sh
 
 install-uf: ## Install Splunk Universal Forwarder on all nodes
@@ -71,6 +77,9 @@ ping: ## Run ICMP ping test and log results
 	@echo "Running ping test..."
 	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ping_test.yml
 
+test: ## Run end-to-end validation
+	@bash $(SCRIPTS_DIR)/test_e2e.sh
+
 status: ## Show status of all containers
 	@echo "=== All Podman Containers ==="
 	@$(PODMAN) ps -a --filter "name=node" --filter "name=splunk" \
@@ -80,6 +89,11 @@ stop: ## Stop all containers
 	@echo "Stopping all containers..."
 	@$(PODMAN) stop node1 node2 node3 $(SPLUNK_NAME) 2>/dev/null || true
 	@echo "All containers stopped."
+
+restart: stop ## Restart all containers
+	@echo "Starting containers..."
+	@$(PODMAN) start node1 node2 node3 $(SPLUNK_NAME) 2>/dev/null || true
+	@echo "All containers restarted."
 
 clean: stop ## Stop and remove all containers, network, and volumes
 	@echo "Removing all containers..."

@@ -1,0 +1,27 @@
+---
+# Network
+lab_network: lab-network
+lab_subnet: "10.89.0.0/24"
+
+# Node IPs on the Podman network
+node_ips:
+  node1: "10.89.0.11"
+  node2: "10.89.0.12"
+  node3: "10.89.0.13"
+
+# Splunk
+splunk_ip: "10.89.0.10"
+splunk_indexer_host: "10.89.0.10"
+splunk_indexer_port: "9997"
+splunk_admin_password: "ChangeMeNow1!"
+splunk_index: "ping_data"
+
+# Splunk Universal Forwarder
+splunk_uf_version: "10.0.1"
+splunk_uf_build: "c486717c322b"
+splunk_uf_url: "https://download.splunk.com/products/universalforwarder/releases/{{ splunk_uf_version }}/linux/splunkforwarder-{{ splunk_uf_version }}-{{ splunk_uf_build }}-linux-arm64.tgz"
+splunk_uf_home: /opt/splunkforwarder
+
+# Ping test
+ping_log_dir: /var/log/ping_logs
+ping_count: 5

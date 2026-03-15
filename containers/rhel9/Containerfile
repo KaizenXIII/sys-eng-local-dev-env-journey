@@ -23,6 +23,17 @@ RUN useradd -m -s /bin/bash ansible \
     && echo "ansible:ansible" | chpasswd \
     && echo "ansible ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
+# Set up SSH key auth for ansible user
+ARG SSH_PUB_KEY=""
+RUN mkdir -p /home/ansible/.ssh \
+    && chmod 700 /home/ansible/.ssh \
+    && chown ansible:ansible /home/ansible/.ssh
+RUN if [ -n "$SSH_PUB_KEY" ]; then \
+        echo "$SSH_PUB_KEY" > /home/ansible/.ssh/authorized_keys \
+        && chmod 600 /home/ansible/.ssh/authorized_keys \
+        && chown ansible:ansible /home/ansible/.ssh/authorized_keys; \
+    fi
+
 # Create directory for ping logs
 RUN mkdir -p /var/log/ping_logs
 

@@ -1,0 +1,12 @@
+# SSH keys (generated during build)
+ansible/keys/
+
+# Ansible retry files
+*.retry
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
