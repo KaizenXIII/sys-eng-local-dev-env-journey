@@ -1,0 +1,30 @@
+---
+- name: Rotate Ping and Process Snapshot Logs
+  hosts: lab_nodes
+  become: yes
+
+  vars:
+    max_log_files: 50
+
+  tasks:
+    - name: Prune old ping logs (keep newest {{ max_log_files }})
+      shell: |
+        cd {{ ping_log_dir }} && ls -t ping_*.log 2>/dev/null | tail -n +{{ max_log_files | int + 1 }} | xargs -r rm -f
+      register: ping_prune
+      changed_when: ping_prune.stdout | length > 0
+
+    - name: Prune old ps logs (keep newest {{ max_log_files }})
+      shell: |
+        cd {{ ps_log_dir }} && ls -t ps_*.log 2>/dev/null | tail -n +{{ max_log_files | int + 1 }} | xargs -r rm -f
+      register: ps_prune
+      changed_when: ps_prune.stdout | length > 0
+
+    - name: Count remaining log files
+      shell: |
+        echo "ping_logs: $(ls {{ ping_log_dir }}/ping_*.log 2>/dev/null | wc -l | tr -d ' ')"
+        echo "ps_logs: $(ls {{ ps_log_dir }}/ps_*.log 2>/dev/null | wc -l | tr -d ' ')"
+      register: log_counts
+
+    - name: Display log counts
+      debug:
+        var: log_counts.stdout_lines

@@ -1,4 +1,9 @@
 ---
+# Credentials (single source of truth — referenced by Makefile and scripts via env vars)
+lab_splunk_password: "ChangeMeNow1!"
+lab_root_password: "changeme"
+lab_hec_token: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
 # Network
 lab_network: lab-network
 lab_subnet: "10.89.0.0/24"
@@ -13,13 +18,14 @@ node_ips:
 splunk_ip: "10.89.0.10"
 splunk_indexer_host: "10.89.0.10"
 splunk_indexer_port: "9997"
-splunk_admin_password: "ChangeMeNow1!"
+splunk_admin_password: "{{ lab_splunk_password }}"
 splunk_index: "ping_data"
 
 # Splunk Universal Forwarder
 splunk_uf_version: "10.0.1"
 splunk_uf_build: "c486717c322b"
-splunk_uf_url: "https://download.splunk.com/products/universalforwarder/releases/{{ splunk_uf_version }}/linux/splunkforwarder-{{ splunk_uf_version }}-{{ splunk_uf_build }}-linux-arm64.tgz"
+splunk_uf_arch: "arm64"  # auto-detected by Makefile; override with: make install-uf SPLUNK_UF_ARCH=amd64
+splunk_uf_url: "https://download.splunk.com/products/universalforwarder/releases/{{ splunk_uf_version }}/linux/splunkforwarder-{{ splunk_uf_version }}-{{ splunk_uf_build }}-linux-{{ splunk_uf_arch }}.tgz"
 splunk_uf_home: /opt/splunkforwarder
 
 # Ping test

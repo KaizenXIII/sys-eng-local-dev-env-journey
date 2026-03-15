@@ -1,21 +1,28 @@
-.PHONY: all check-ports ssh-keys network build-nodes run-nodes splunk splunk-index \
-       install-uf ping ps test clean stop restart status help
+.PHONY: all check-deps check-ports ssh-keys build-nodes up down splunk-index \
+       install-uf ping ps test clean stop restart status logs log-rotate help
 
 PODMAN := podman
 ANSIBLE_DIR := ansible
 SCRIPTS_DIR := scripts
-NETWORK := lab-network
+SPLUNK_UF_ARCH := $(shell bash $(SCRIPTS_DIR)/detect_arch.sh)
 IMAGE_NAME := lab-rhel9-node
-SPLUNK_IMAGE := docker.io/splunk/splunk:latest
-SPLUNK_NAME := splunk-standalone
-SPLUNK_IP := 10.89.0.10
 SSH_KEY := $(ANSIBLE_DIR)/keys/lab_node
+LAB_SPLUNK_PASSWORD ?= ChangeMeNow1!
+LAB_ROOT_PASSWORD ?= changeme
+LAB_HEC_TOKEN ?= a1b2c3d4-e5f6-7890-abcd-ef1234567890
+
+# Export for compose.yml env var substitution
+export LAB_SPLUNK_PASSWORD
+export LAB_HEC_TOKEN
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-all: check-ports ssh-keys network build-nodes run-nodes splunk splunk-index install-uf ping test ## Full setup end-to-end with validation
+all: check-deps check-ports ssh-keys build-nodes up splunk-index install-uf ping ps test ## Full setup end-to-end with validation
+
+check-deps: ## Verify required tools are installed
+	@bash $(SCRIPTS_DIR)/check_deps.sh
 
 check-ports: ## Check if required ports are available
 	@bash $(SCRIPTS_DIR)/check_ports.sh
@@ -23,55 +30,29 @@ check-ports: ## Check if required ports are available
 ssh-keys: ## Generate SSH keypair for Ansible
 	@bash $(SCRIPTS_DIR)/generate_ssh_keys.sh
 
-network: ## Create Podman network for lab nodes
-	@echo "Creating Podman network '$(NETWORK)'..."
-	@$(PODMAN) network create $(NETWORK) --subnet 10.89.0.0/24 2>/dev/null || \
-		echo "Network '$(NETWORK)' already exists."
-
 build-nodes: ssh-keys ## Build the RHEL9 node container image
 	@echo "Building container image '$(IMAGE_NAME)'..."
 	$(PODMAN) build -t $(IMAGE_NAME) \
 		--build-arg SSH_PUB_KEY="$$(cat $(SSH_KEY).pub)" \
+		--build-arg ROOT_PASSWORD="$(LAB_ROOT_PASSWORD)" \
 		containers/rhel9/
 
-run-nodes: ## Start the 3 lab node containers
-	@echo "Starting lab node containers..."
-	@$(PODMAN) run -d --name node1 --hostname node1 \
-		--network $(NETWORK) --ip 10.89.0.11 \
-		-p 2221:22 $(IMAGE_NAME) 2>/dev/null || \
-		echo "node1 already running"
-	@$(PODMAN) run -d --name node2 --hostname node2 \
-		--network $(NETWORK) --ip 10.89.0.12 \
-		-p 2222:22 $(IMAGE_NAME) 2>/dev/null || \
-		echo "node2 already running"
-	@$(PODMAN) run -d --name node3 --hostname node3 \
-		--network $(NETWORK) --ip 10.89.0.13 \
-		-p 2223:22 $(IMAGE_NAME) 2>/dev/null || \
-		echo "node3 already running"
+up: ## Start all containers (nodes + Splunk) via compose
+	@echo "Starting lab environment..."
+	$(PODMAN) compose up -d
 	@echo "Waiting for SSH to be ready..."
 	@sleep 3
-	@echo "Lab nodes are up."
+	@echo "Lab environment is up."
 
-splunk: ## Start Splunk standalone container in Podman
-	@echo "Starting Splunk in Podman..."
-	@$(PODMAN) run -d --name $(SPLUNK_NAME) --hostname splunk \
-		--platform linux/amd64 \
-		--network $(NETWORK) --ip $(SPLUNK_IP) \
-		-p 8000:8000 -p 8088:8088 -p 8089:8089 -p 9997:9997 \
-		-e SPLUNK_START_ARGS=--accept-license \
-		-e SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com \
-		-e SPLUNK_PASSWORD=ChangeMeNow1! \
-		-e SPLUNK_HEC_TOKEN=a1b2c3d4-e5f6-7890-abcd-ef1234567890 \
-		$(SPLUNK_IMAGE) 2>/dev/null || \
-		echo "$(SPLUNK_NAME) already running"
-	@echo "Splunk starting at http://localhost:8000 (admin / ChangeMeNow1!)"
+down: ## Stop and remove all containers via compose
+	$(PODMAN) compose down
 
 splunk-index: ## Create Splunk indexes (waits for readiness)
-	@bash $(SCRIPTS_DIR)/setup_splunk_index.sh
+	@LAB_SPLUNK_PASSWORD=$(LAB_SPLUNK_PASSWORD) bash $(SCRIPTS_DIR)/setup_splunk_index.sh
 
 install-uf: ## Install Splunk Universal Forwarder on all nodes
-	@echo "Installing Splunk UF on lab nodes..."
-	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/install_splunk_uf.yml
+	@echo "Installing Splunk UF on lab nodes (arch: $(SPLUNK_UF_ARCH))..."
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/install_splunk_uf.yml -e "splunk_uf_arch=$(SPLUNK_UF_ARCH)" -e "lab_splunk_password=$(LAB_SPLUNK_PASSWORD)"
 
 ping: ## Run ICMP ping test and log results
 	@echo "Running ping test..."
@@ -81,8 +62,22 @@ ps: ## Capture process snapshots and log results
 	@echo "Running process snapshot..."
 	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ps_snapshot.yml
 
+log-rotate: ## Prune old logs (keep newest 50 per node)
+	@echo "Rotating logs..."
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/log_rotate.yml
+
 test: ## Run end-to-end validation
-	@bash $(SCRIPTS_DIR)/test_e2e.sh
+	@LAB_SPLUNK_PASSWORD=$(LAB_SPLUNK_PASSWORD) bash $(SCRIPTS_DIR)/test_e2e.sh
+
+logs: ## Show recent ping and ps logs from all nodes
+	@for NODE in node1 node2 node3; do \
+		echo ""; \
+		echo "═══ $$NODE — ping logs ═══"; \
+		$(PODMAN) exec $$NODE bash -c 'FILE=$$(ls -t /var/log/ping_logs/ping_*.log 2>/dev/null | head -1); [ -f "$$FILE" ] && tail -20 "$$FILE" || echo "  (no ping logs)"' 2>/dev/null; \
+		echo ""; \
+		echo "═══ $$NODE — ps logs ═══"; \
+		$(PODMAN) exec $$NODE bash -c 'FILE=$$(ls -t /var/log/ps_logs/ps_*.log 2>/dev/null | head -1); [ -f "$$FILE" ] && tail -20 "$$FILE" || echo "  (no ps logs)"' 2>/dev/null; \
+	done
 
 status: ## Show status of all containers
 	@echo "=== All Podman Containers ==="
@@ -90,18 +85,14 @@ status: ## Show status of all containers
 		--format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
 stop: ## Stop all containers
-	@echo "Stopping all containers..."
-	@$(PODMAN) stop node1 node2 node3 $(SPLUNK_NAME) 2>/dev/null || true
-	@echo "All containers stopped."
+	$(PODMAN) compose stop
 
-restart: stop ## Restart all containers
-	@echo "Starting containers..."
-	@$(PODMAN) start node1 node2 node3 $(SPLUNK_NAME) 2>/dev/null || true
+restart: ## Restart all containers
+	$(PODMAN) compose restart
+	@echo "Waiting for SSH to be ready..."
+	@sleep 3
 	@echo "All containers restarted."
 
-clean: stop ## Stop and remove all containers, network, and volumes
-	@echo "Removing all containers..."
-	@$(PODMAN) rm -f node1 node2 node3 $(SPLUNK_NAME) 2>/dev/null || true
-	@echo "Removing network..."
-	@$(PODMAN) network rm $(NETWORK) 2>/dev/null || true
+clean: ## Stop and remove all containers, network, and images
+	$(PODMAN) compose down --remove-orphans 2>/dev/null || true
 	@echo "Cleanup complete."

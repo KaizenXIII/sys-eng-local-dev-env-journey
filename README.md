@@ -4,6 +4,7 @@ A self-contained lab environment for practicing systems engineering fundamentals
 
 ## Table of Contents
 
+- [Features](#features)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
@@ -14,6 +15,18 @@ A self-contained lab environment for practicing systems engineering fundamentals
 - [Credentials](#credentials)
 - [Cleanup](#cleanup)
 - [Troubleshooting](#troubleshooting)
+
+## Features
+
+- **Three RHEL9 nodes** running as Podman containers with SSH, sudo, ping, and ps utilities
+- **Ansible-managed** -- all node configuration driven by playbooks and a centralized inventory
+- **SSH key authentication** -- ed25519 keypair generated at build time and baked into node images
+- **ICMP ping tests** between all nodes with timestamped log files
+- **Process snapshots** captured via `ps aux` on every node, sorted by memory usage
+- **Splunk integration** -- Universal Forwarder on each node ships logs to a local Splunk Enterprise instance
+- **Two Splunk indexes** -- `ping_data` for network tests, `ps_data` for process snapshots
+- **End-to-end validation** -- automated test script checks containers, SSH, Splunk API, UF forwarding, and data flow
+- **Single-command setup** -- `make all` takes the lab from zero to fully operational
 
 ## Architecture
 
@@ -60,7 +73,9 @@ podman machine init
 podman machine start
 ```
 
-> Splunk Enterprise has no ARM64 image and runs under `--platform linux/amd64` via QEMU emulation on Apple Silicon. Startup takes 3-5 minutes.
+> **Apple Silicon note:** Splunk Enterprise has no ARM64 image and runs under `--platform linux/amd64` via QEMU emulation. Startup takes 3-5 minutes. The Splunk Universal Forwarder, however, uses a native ARM64 build (configured in `ansible/group_vars/all.yml`).
+
+> **Intel Mac users:** Update `splunk_uf_url` in `ansible/group_vars/all.yml` to point to the `linux-amd64.tgz` package before running `make all`.
 
 ## Quick Start
 
@@ -77,6 +92,8 @@ This will:
 6. Install the Splunk Universal Forwarder on each node via Ansible (monitors both ping and ps logs)
 7. Run ICMP ping tests between all nodes and log results
 8. Run end-to-end validation to confirm everything is working
+
+> **Note:** Process snapshots (`make ps`) are not included in `make all` and must be run separately.
 
 Open Splunk at **http://localhost:8000** and search `index=ping_data` or `index=ps_data` to see forwarded results.
 
@@ -152,17 +169,23 @@ ssh -i ansible/keys/lab_node -o StrictHostKeyChecking=no ansible@127.0.0.1 -p 22
 make ping
 ```
 
+Results are written to `/var/log/ping_logs/` on each node and forwarded to the `ping_data` Splunk index.
+
 ### Capture process snapshots
 
 ```bash
 make ps
 ```
 
+Results are written to `/var/log/ps_logs/` on each node and forwarded to the `ps_data` Splunk index.
+
 ### Run end-to-end validation
 
 ```bash
 make test
 ```
+
+Validates containers, SSH connectivity, Splunk API, Universal Forwarder status, and data flow.
 
 ### Search data in Splunk
 
@@ -193,20 +216,31 @@ make status
 make clean
 ```
 
+This stops and removes all containers (node1, node2, node3, splunk-standalone) and the `lab-network` Podman network. SSH keys in `ansible/keys/` are preserved so subsequent `make all` runs reuse them.
+
 ## Troubleshooting
 
-**Port conflict on startup** — Run `make check-ports` to identify which ports are occupied.
+**Port conflict on startup** -- Run `make check-ports` to identify which ports are occupied. Kill the offending process or change the port mapping in the Makefile.
 
-**Splunk takes a long time to start** — On Apple Silicon with amd64 emulation, initial startup takes 3-5 minutes. The `setup_splunk_index.sh` script polls until the management API responds.
+**Splunk takes a long time to start** -- On Apple Silicon with amd64 emulation, initial startup takes 3-5 minutes. The `setup_splunk_index.sh` script polls the management API every 10 seconds until it responds.
 
-**Ansible connection refused** — Nodes need a few seconds after `podman run` for sshd to start. Wait a moment and retry.
+**Ansible connection refused** -- Nodes need a few seconds after `podman run` for sshd to start. The Makefile includes a 3-second sleep, but if you still see failures, wait a moment and retry.
 
-**Splunk UF not forwarding data** — SSH into a node and check:
+**Splunk UF not forwarding data** -- SSH into a node and check:
+
 ```bash
 /opt/splunkforwarder/bin/splunk status
-/opt/splunkforwarder/bin/splunk list forward-server
+/opt/splunkforwarder/bin/splunk list forward-server -auth admin:ChangeMeNow1!
 ```
+
+**No events in Splunk** -- After running `make ping` or `make ps`, allow 30-60 seconds for the Universal Forwarder to pick up and ship the log files. Verify the UF `inputs.conf` is monitoring the correct paths:
+
+```bash
+cat /opt/splunkforwarder/etc/system/local/inputs.conf
+```
+
+**Rebuilding from scratch** -- Run `make clean` followed by `make all` for a completely fresh environment.
 
 ---
 
-> *On Her Majesty's server. 2026-03-14*
+> *The spy who logged me. 2026-03-15 13:32 PDT*

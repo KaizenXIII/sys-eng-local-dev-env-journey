@@ -5,7 +5,7 @@ set -e
 PASS=0
 FAIL=0
 SPLUNK_USER="admin"
-SPLUNK_PASS="ChangeMeNow1!"
+SPLUNK_PASS="${LAB_SPLUNK_PASSWORD:-ChangeMeNow1!}"
 
 check() {
     local desc="$1"
@@ -46,6 +46,7 @@ echo "  Splunk Services:"
 check "Splunk mgmt API (8089)" "curl -sk -u $SPLUNK_USER:$SPLUNK_PASS https://localhost:8089/services/server/info -o /dev/null -w '%{http_code}' | grep -q 200"
 check "Splunk web UI (8000)" "curl -sk -o /dev/null -w '%{http_code}' http://localhost:8000/en-US/account/login | grep -q 200"
 check "Index ping_data exists" "curl -sk -u $SPLUNK_USER:$SPLUNK_PASS https://localhost:8089/services/data/indexes/ping_data -o /dev/null -w '%{http_code}' | grep -q 200"
+check "Index ps_data exists" "curl -sk -u $SPLUNK_USER:$SPLUNK_PASS https://localhost:8089/services/data/indexes/ps_data -o /dev/null -w '%{http_code}' | grep -q 200"
 echo ""
 
 # UF forwarding
@@ -57,11 +58,16 @@ echo ""
 
 # Data in Splunk
 echo "  Data Flow:"
-EVENT_COUNT=$(curl -sk -u "$SPLUNK_USER:$SPLUNK_PASS" \
+PING_EVENT_COUNT=$(curl -sk -u "$SPLUNK_USER:$SPLUNK_PASS" \
     "https://localhost:8089/services/search/jobs/export" \
     -d "search=search index=ping_data | stats count" \
     -d "output_mode=csv" 2>/dev/null | tail -1)
-check "Events in ping_data index (count: $EVENT_COUNT)" "[ '$EVENT_COUNT' -gt 0 ] 2>/dev/null"
+check "Events in ping_data index (count: $PING_EVENT_COUNT)" "[ '$PING_EVENT_COUNT' -gt 0 ] 2>/dev/null"
+PS_EVENT_COUNT=$(curl -sk -u "$SPLUNK_USER:$SPLUNK_PASS" \
+    "https://localhost:8089/services/search/jobs/export" \
+    -d "search=search index=ps_data | stats count" \
+    -d "output_mode=csv" 2>/dev/null | tail -1)
+check "Events in ps_data index (count: $PS_EVENT_COUNT)" "[ '$PS_EVENT_COUNT' -gt 0 ] 2>/dev/null"
 echo ""
 
 # Summary

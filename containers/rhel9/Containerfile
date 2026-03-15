@@ -12,11 +12,12 @@ RUN dnf install -y \
     && dnf clean all
 
 # Configure SSH
+ARG ROOT_PASSWORD="changeme"
 RUN ssh-keygen -A \
     && mkdir -p /run/sshd \
     && sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config \
     && sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config \
-    && echo "root:changeme" | chpasswd
+    && echo "root:${ROOT_PASSWORD}" | chpasswd
 
 # Create a non-root user for Ansible
 RUN useradd -m -s /bin/bash ansible \
@@ -34,8 +35,8 @@ RUN if [ -n "$SSH_PUB_KEY" ]; then \
         && chown ansible:ansible /home/ansible/.ssh/authorized_keys; \
     fi
 
-# Create directory for ping logs
-RUN mkdir -p /var/log/ping_logs
+# Create directories for logs
+RUN mkdir -p /var/log/ping_logs /var/log/ps_logs
 
 # Expose SSH port
 EXPOSE 22

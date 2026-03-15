@@ -43,8 +43,8 @@
         {{ splunk_indexer_host }}:{{ splunk_indexer_port }}
         -auth admin:{{ splunk_admin_password }}
       register: fwd_result
-      failed_when: fwd_result.rc != 0 and 'already exists' not in fwd_result.stderr
-      changed_when: "'already exists' not in fwd_result.stderr"
+      failed_when: fwd_result.rc != 0 and 'already present' not in fwd_result.stderr
+      changed_when: "'already present' not in fwd_result.stderr"
 
     - name: Create inputs.conf for log monitoring
       copy:

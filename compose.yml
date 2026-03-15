@@ -1,0 +1,56 @@
+services:
+  node1:
+    image: lab-rhel9-node
+    container_name: node1
+    hostname: node1
+    networks:
+      lab-network:
+        ipv4_address: 10.89.0.11
+    ports:
+      - "2221:22"
+
+  node2:
+    image: lab-rhel9-node
+    container_name: node2
+    hostname: node2
+    networks:
+      lab-network:
+        ipv4_address: 10.89.0.12
+    ports:
+      - "2222:22"
+
+  node3:
+    image: lab-rhel9-node
+    container_name: node3
+    hostname: node3
+    networks:
+      lab-network:
+        ipv4_address: 10.89.0.13
+    ports:
+      - "2223:22"
+
+  splunk:
+    image: docker.io/splunk/splunk:latest
+    platform: linux/amd64
+    container_name: splunk-standalone
+    hostname: splunk
+    networks:
+      lab-network:
+        ipv4_address: 10.89.0.10
+    ports:
+      - "8000:8000"
+      - "8088:8088"
+      - "8089:8089"
+      - "9997:9997"
+    environment:
+      SPLUNK_START_ARGS: "--accept-license"
+      SPLUNK_GENERAL_TERMS: "--accept-sgt-current-at-splunk-com"
+      SPLUNK_PASSWORD: "${LAB_SPLUNK_PASSWORD:-ChangeMeNow1!}"
+      SPLUNK_HEC_TOKEN: "${LAB_HEC_TOKEN:-a1b2c3d4-e5f6-7890-abcd-ef1234567890}"
+
+networks:
+  lab-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.89.0.0/24
