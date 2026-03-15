@@ -46,14 +46,20 @@
       failed_when: fwd_result.rc != 0 and 'already exists' not in fwd_result.stderr
       changed_when: "'already exists' not in fwd_result.stderr"
 
-    - name: Create inputs.conf for ping logs
+    - name: Create inputs.conf for log monitoring
       copy:
         dest: "{{ splunk_uf_home }}/etc/system/local/inputs.conf"
         content: |
           [monitor://{{ ping_log_dir }}]
           disabled = false
-          index = {{ splunk_index }}
+          index = ping_data
           sourcetype = ping_results
+          host = {{ inventory_hostname }}
+
+          [monitor://{{ ps_log_dir }}]
+          disabled = false
+          index = ps_data
+          sourcetype = ps_snapshot
           host = {{ inventory_hostname }}
         mode: "0644"
 

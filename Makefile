@@ -1,5 +1,5 @@
 .PHONY: all check-ports ssh-keys network build-nodes run-nodes splunk splunk-index \
-       install-uf ping test clean stop restart status help
+       install-uf ping ps test clean stop restart status help
 
 PODMAN := podman
 ANSIBLE_DIR := ansible
@@ -66,7 +66,7 @@ splunk: ## Start Splunk standalone container in Podman
 		echo "$(SPLUNK_NAME) already running"
 	@echo "Splunk starting at http://localhost:8000 (admin / ChangeMeNow1!)"
 
-splunk-index: ## Create ping_data index in Splunk (waits for readiness)
+splunk-index: ## Create Splunk indexes (waits for readiness)
 	@bash $(SCRIPTS_DIR)/setup_splunk_index.sh
 
 install-uf: ## Install Splunk Universal Forwarder on all nodes
@@ -76,6 +76,10 @@ install-uf: ## Install Splunk Universal Forwarder on all nodes
 ping: ## Run ICMP ping test and log results
 	@echo "Running ping test..."
 	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ping_test.yml
+
+ps: ## Capture process snapshots and log results
+	@echo "Running process snapshot..."
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/ps_snapshot.yml
 
 test: ## Run end-to-end validation
 	@bash $(SCRIPTS_DIR)/test_e2e.sh

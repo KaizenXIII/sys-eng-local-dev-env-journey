@@ -25,3 +25,6 @@ splunk_uf_home: /opt/splunkforwarder
 # Ping test
 ping_log_dir: /var/log/ping_logs
 ping_count: 5
+
+# Process snapshot
+ps_log_dir: /var/log/ps_logs

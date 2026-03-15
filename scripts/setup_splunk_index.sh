@@ -1,5 +1,5 @@
 #!/bin/bash
-# Create the ping_data index in Splunk via the management API (port 8089)
+# Create Splunk indexes via the management API (port 8089)
 # The mgmt API comes up before the web UI, making this faster during startup.
 set -e
 
@@ -7,7 +7,7 @@ SPLUNK_HOST="localhost"
 SPLUNK_MGMT_PORT="8089"
 SPLUNK_USER="admin"
 SPLUNK_PASS="ChangeMeNow1!"
-INDEX_NAME="ping_data"
+INDEXES=("ping_data" "ps_data")
 
 echo "Waiting for Splunk management API to be ready..."
 until curl -sk -o /dev/null -w "%{http_code}" \
@@ -18,20 +18,22 @@ until curl -sk -o /dev/null -w "%{http_code}" \
 done
 echo "Splunk management API is ready."
 
-echo "Creating index '${INDEX_NAME}'..."
-RESPONSE=$(curl -sk -u "${SPLUNK_USER}:${SPLUNK_PASS}" \
-    "https://${SPLUNK_HOST}:${SPLUNK_MGMT_PORT}/services/data/indexes" \
-    -d "name=${INDEX_NAME}" \
-    -d "datatype=event" \
-    -o /dev/null -w "%{http_code}")
+for INDEX_NAME in "${INDEXES[@]}"; do
+    echo "Creating index '${INDEX_NAME}'..."
+    RESPONSE=$(curl -sk -u "${SPLUNK_USER}:${SPLUNK_PASS}" \
+        "https://${SPLUNK_HOST}:${SPLUNK_MGMT_PORT}/services/data/indexes" \
+        -d "name=${INDEX_NAME}" \
+        -d "datatype=event" \
+        -o /dev/null -w "%{http_code}")
 
-if [ "$RESPONSE" = "201" ]; then
-    echo "Index '${INDEX_NAME}' created successfully."
-elif [ "$RESPONSE" = "409" ]; then
-    echo "Index '${INDEX_NAME}' already exists."
-else
-    echo "Warning: Got HTTP ${RESPONSE} when creating index. Continuing..."
-fi
+    if [ "$RESPONSE" = "201" ]; then
+        echo "Index '${INDEX_NAME}' created successfully."
+    elif [ "$RESPONSE" = "409" ]; then
+        echo "Index '${INDEX_NAME}' already exists."
+    else
+        echo "Warning: Got HTTP ${RESPONSE} when creating index. Continuing..."
+    fi
+done
 
 # The Splunk container auto-configures splunktcp on 9997 during provisioning.
 # Verify it's there; create via cooked endpoint if missing.

@@ -1,0 +1,27 @@
+---
+- name: Process Snapshot on Lab Nodes
+  hosts: lab_nodes
+  become: yes
+
+  tasks:
+    - name: Ensure ps log directory exists
+      file:
+        path: "{{ ps_log_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Capture process snapshot
+      shell: |
+        LOGFILE="{{ ps_log_dir }}/ps_{{ inventory_hostname }}_$(date -u '+%Y%m%d_%H%M%S').log"
+        echo "=== Process snapshot on {{ inventory_hostname }} at $(date -u '+%Y-%m-%dT%H:%M:%SZ') ===" >> "$LOGFILE"
+        ps aux --sort=-%mem >> "$LOGFILE"
+        echo "" >> "$LOGFILE"
+      register: ps_results
+
+    - name: Show latest ps log
+      shell: cat "$(ls -t {{ ps_log_dir }}/ps_{{ inventory_hostname }}_*.log | head -1)"
+      register: log_output
+
+    - name: Display process snapshot
+      debug:
+        var: log_output.stdout_lines

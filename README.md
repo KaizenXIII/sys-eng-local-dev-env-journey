@@ -1,6 +1,6 @@
 # Systems Engineering Local Dev Environment Journey
 
-A self-contained lab environment for practicing systems engineering fundamentals on macOS. Spins up three RHEL9 (UBI9) containers in Podman, manages them with Ansible from the Mac host, runs ICMP ping tests between nodes, and ships the results to a local Splunk Enterprise instance for analysis.
+A self-contained lab environment for practicing systems engineering fundamentals on macOS. Spins up three RHEL9 (UBI9) containers in Podman, manages them with Ansible from the Mac host, runs ICMP ping tests and process snapshots across nodes, and ships all results to a local Splunk Enterprise instance for analysis.
 
 ## Table of Contents
 
@@ -70,29 +70,35 @@ make all
 
 This will:
 1. Check that required ports are free
-2. Create the Podman network (`10.89.0.0/24`)
-3. Build the RHEL9 node image and start 3 containers
-4. Start Splunk Enterprise, create the `ping_data` index, and enable receiving on port 9997
-5. Install the Splunk Universal Forwarder on each node via Ansible
-6. Run ICMP ping tests between all nodes and log results
+2. Generate an SSH keypair for Ansible (ed25519, stored in `ansible/keys/`)
+3. Create the Podman network (`10.89.0.0/24`)
+4. Build the RHEL9 node image (with the public key baked in) and start 3 containers
+5. Start Splunk Enterprise, create the `ping_data` and `ps_data` indexes, and enable receiving on port 9997
+6. Install the Splunk Universal Forwarder on each node via Ansible (monitors both ping and ps logs)
+7. Run ICMP ping tests between all nodes and log results
+8. Run end-to-end validation to confirm everything is working
 
-Open Splunk at **http://localhost:8000** and search `index=ping_data` to see the forwarded ping results.
+Open Splunk at **http://localhost:8000** and search `index=ping_data` or `index=ps_data` to see forwarded results.
 
 ## Make Targets
 
 ```
 make help            Show all available targets
-make all             Full setup end-to-end
+make all             Full setup end-to-end with validation
 make check-ports     Verify ports 8000,8088,8089,9997,2221-2223 are free
+make ssh-keys        Generate SSH keypair for Ansible
 make network         Create the lab-network (10.89.0.0/24)
 make build-nodes     Build the RHEL9 node container image
 make run-nodes       Start node1, node2, node3
 make splunk          Start Splunk Enterprise container
-make splunk-index    Create the ping_data index and enable receiving
+make splunk-index    Create Splunk indexes and enable receiving
 make install-uf      Deploy Splunk Universal Forwarder to all nodes
 make ping            Run ICMP ping tests between nodes
+make ps              Capture process snapshots on all nodes
+make test            Run end-to-end validation
 make status          Show container status
 make stop            Stop all containers
+make restart         Restart all containers
 make clean           Stop and remove all containers and network
 ```
 
@@ -103,16 +109,22 @@ make clean           Stop and remove all containers and network
 ├── Makefile                              # Orchestrates the entire lab
 ├── containers/
 │   └── rhel9/
-│       └── Containerfile                 # UBI9 image with SSH, ping, sudo
+│       └── Containerfile                 # UBI9 image with SSH, ping, ps, sudo
 ├── ansible/
 │   ├── ansible.cfg                       # Ansible configuration
 │   ├── inventory.ini                     # Node inventory (localhost:2221-2223)
+│   ├── group_vars/
+│   │   └── all.yml                       # Shared variables (IPs, paths, Splunk config)
+│   ├── keys/                             # Generated SSH keypair (git-ignored)
 │   └── playbooks/
 │       ├── install_splunk_uf.yml         # Deploys and configures Splunk UF
-│       └── ping_test.yml                 # Runs ICMP pings, writes to /var/log/ping_logs/
+│       ├── ping_test.yml                 # Runs ICMP pings, writes to /var/log/ping_logs/
+│       └── ps_snapshot.yml               # Captures process snapshots to /var/log/ps_logs/
 └── scripts/
     ├── check_ports.sh                    # Pre-flight port availability check
-    └── setup_splunk_index.sh             # Creates ping_data index via Splunk REST API
+    ├── generate_ssh_keys.sh              # Creates ed25519 keypair for Ansible
+    ├── setup_splunk_index.sh             # Creates ping_data and ps_data indexes
+    └── test_e2e.sh                       # End-to-end lab validation
 ```
 
 ## Network Layout
@@ -129,9 +141,9 @@ make clean           Stop and remove all containers and network
 ### SSH into a node
 
 ```bash
-ssh -o StrictHostKeyChecking=no ansible@127.0.0.1 -p 2221   # node1
-ssh -o StrictHostKeyChecking=no ansible@127.0.0.1 -p 2222   # node2
-ssh -o StrictHostKeyChecking=no ansible@127.0.0.1 -p 2223   # node3
+ssh -i ansible/keys/lab_node -o StrictHostKeyChecking=no ansible@127.0.0.1 -p 2221   # node1
+ssh -i ansible/keys/lab_node -o StrictHostKeyChecking=no ansible@127.0.0.1 -p 2222   # node2
+ssh -i ansible/keys/lab_node -o StrictHostKeyChecking=no ansible@127.0.0.1 -p 2223   # node3
 ```
 
 ### Run the ping test
@@ -140,11 +152,24 @@ ssh -o StrictHostKeyChecking=no ansible@127.0.0.1 -p 2223   # node3
 make ping
 ```
 
-### Search ping data in Splunk
+### Capture process snapshots
+
+```bash
+make ps
+```
+
+### Run end-to-end validation
+
+```bash
+make test
+```
+
+### Search data in Splunk
 
 1. Open **http://localhost:8000**
 2. Log in with `admin` / `ChangeMeNow1!`
 3. Search: `index=ping_data sourcetype=ping_results`
+4. Search: `index=ps_data sourcetype=ps_snapshot`
 
 ### Check lab status
 
@@ -158,7 +183,7 @@ make status
 |--------------------|----------|---------------|
 | Splunk Web         | admin    | ChangeMeNow1! |
 | Node SSH (root)    | root     | changeme      |
-| Node SSH (ansible) | ansible  | ansible       |
+| Node SSH (ansible) | ansible  | key-based (ansible/keys/lab_node) |
 
 > Lab-only credentials. Do not use in any shared or production environment.
 
@@ -172,7 +197,7 @@ make clean
 
 **Port conflict on startup** — Run `make check-ports` to identify which ports are occupied.
 
-**Splunk takes a long time to start** — On Apple Silicon with amd64 emulation, initial startup takes 3-5 minutes. The `setup_splunk_index.sh` script polls until the web UI responds.
+**Splunk takes a long time to start** — On Apple Silicon with amd64 emulation, initial startup takes 3-5 minutes. The `setup_splunk_index.sh` script polls until the management API responds.
 
 **Ansible connection refused** — Nodes need a few seconds after `podman run` for sshd to start. Wait a moment and retry.
 
