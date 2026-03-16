@@ -9,11 +9,18 @@ SPLUNK_USER="admin"
 SPLUNK_PASS="${LAB_SPLUNK_PASSWORD:-ChangeMeNow1!}"
 INDEXES=("ping_data" "ps_data")
 
+MAX_ATTEMPTS=60
+ATTEMPT=0
 echo "Waiting for Splunk management API to be ready..."
 until curl -sk -o /dev/null -w "%{http_code}" \
     "https://${SPLUNK_HOST}:${SPLUNK_MGMT_PORT}/services/server/info" \
     -u "${SPLUNK_USER}:${SPLUNK_PASS}" 2>/dev/null | grep -q "200"; do
-    echo "  Splunk mgmt API not ready yet, retrying in 10s..."
+    ATTEMPT=$((ATTEMPT + 1))
+    if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
+        echo "ERROR: Splunk mgmt API not ready after $MAX_ATTEMPTS attempts ($(( MAX_ATTEMPTS * 10 ))s). Giving up."
+        exit 1
+    fi
+    echo "  Splunk mgmt API not ready yet, retrying in 10s... ($ATTEMPT/$MAX_ATTEMPTS)"
     sleep 10
 done
 echo "Splunk management API is ready."

@@ -1,5 +1,5 @@
 .PHONY: all check-deps check-ports ssh-keys build-nodes up down splunk-index \
-       install-uf ping ps test clean stop restart status logs log-rotate help
+       install-uf ping ps test clean nuke lifecycle stop restart status logs log-rotate help
 
 PODMAN := podman
 ANSIBLE_DIR := ansible
@@ -41,7 +41,19 @@ up: ## Start all containers (nodes + Splunk) via compose
 	@echo "Starting lab environment..."
 	$(PODMAN) compose up -d
 	@echo "Waiting for SSH to be ready..."
-	@sleep 3
+	@for port in 2221 2222 2223; do \
+		attempt=0; \
+		while ! ssh -o ConnectTimeout=1 -o StrictHostKeyChecking=no -o BatchMode=yes \
+			-i $(SSH_KEY) -p $$port ansible@localhost true 2>/dev/null; do \
+			attempt=$$((attempt + 1)); \
+			if [ $$attempt -ge 30 ]; then \
+				echo "ERROR: SSH on port $$port not ready after 30 attempts"; \
+				exit 1; \
+			fi; \
+			sleep 1; \
+		done; \
+		echo "  SSH ready on port $$port"; \
+	done
 	@echo "Lab environment is up."
 
 down: ## Stop and remove all containers via compose
@@ -90,9 +102,35 @@ stop: ## Stop all containers
 restart: ## Restart all containers
 	$(PODMAN) compose restart
 	@echo "Waiting for SSH to be ready..."
-	@sleep 3
+	@for port in 2221 2222 2223; do \
+		attempt=0; \
+		while ! ssh -o ConnectTimeout=1 -o StrictHostKeyChecking=no -o BatchMode=yes \
+			-i $(SSH_KEY) -p $$port ansible@localhost true 2>/dev/null; do \
+			attempt=$$((attempt + 1)); \
+			if [ $$attempt -ge 30 ]; then \
+				echo "ERROR: SSH on port $$port not ready after 30 attempts"; \
+				exit 1; \
+			fi; \
+			sleep 1; \
+		done; \
+		echo "  SSH ready on port $$port"; \
+	done
 	@echo "All containers restarted."
 
 clean: ## Stop and remove all containers, network, and images
 	$(PODMAN) compose down --remove-orphans 2>/dev/null || true
+	@# Force-remove by name in case compose lost track (project rename, etc.)
+	@for c in node1 node2 node3 splunk-standalone; do \
+		$(PODMAN) rm -f $$c 2>/dev/null || true; \
+	done
+	@# Remove any lab networks left behind
+	@$(PODMAN) network ls --format '{{.Name}}' | grep lab-network | xargs -r $(PODMAN) network rm 2>/dev/null || true
 	@echo "Cleanup complete."
+
+nuke: clean ## Full teardown: containers, image, SSH keys, and orphaned volumes
+	$(PODMAN) rmi $(IMAGE_NAME) 2>/dev/null || true
+	$(PODMAN) volume prune -f 2>/dev/null || true
+	rm -f $(SSH_KEY) $(SSH_KEY).pub
+	@echo "Full teardown complete — image, volumes, and SSH keys removed."
+
+lifecycle: nuke all ## Destroy everything and rebuild from scratch (IaC idempotency test)
