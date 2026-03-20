@@ -48,6 +48,121 @@ services:
       SPLUNK_PASSWORD: "${LAB_SPLUNK_PASSWORD:-ChangeMeNow1!}"
       SPLUNK_HEC_TOKEN: "${LAB_HEC_TOKEN:-a1b2c3d4-e5f6-7890-abcd-ef1234567890}"
 
+  otel-collector:
+    image: quay.io/signalfx/splunk-otel-collector:latest
+    container_name: otel-collector
+    hostname: otel-collector
+    networks:
+      lab-network:
+        ipv4_address: 10.89.0.20
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./otel/otel-collector-config.yml:/etc/otel/config.yaml:ro
+    environment:
+      SPLUNK_HEC_TOKEN: "${LAB_HEC_TOKEN:-a1b2c3d4-e5f6-7890-abcd-ef1234567890}"
+      SPLUNK_CONFIG: "/etc/otel/config.yaml"
+    depends_on:
+      - splunk
+
+  awx-postgres:
+    image: docker.io/library/postgres:15
+    container_name: awx-postgres
+    hostname: awx-postgres
+    networks:
+      lab-network:
+        ipv4_address: 10.89.0.30
+    environment:
+      POSTGRES_DB: awx
+      POSTGRES_USER: awx
+      POSTGRES_PASSWORD: "${LAB_AWX_PG_PASSWORD:-awxpass123}"
+    volumes:
+      - awx_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U awx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  awx-redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: awx-redis
+    hostname: awx-redis
+    networks:
+      lab-network:
+        ipv4_address: 10.89.0.31
+    volumes:
+      - awx_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  awx-web:
+    image: quay.io/ansible/awx:24.6.1
+    container_name: awx-web
+    hostname: awx-web
+    command: /usr/bin/launch_awx_web.sh
+    networks:
+      lab-network:
+        ipv4_address: 10.89.0.32
+    ports:
+      - "8085:8052"
+    environment:
+      DATABASE_HOST: awx-postgres
+      DATABASE_NAME: awx
+      DATABASE_USER: awx
+      DATABASE_PASSWORD: "${LAB_AWX_PG_PASSWORD:-awxpass123}"
+      DATABASE_PORT: "5432"
+      AWX_ADMIN_USER: "${LAB_AWX_ADMIN_USER:-admin}"
+      AWX_ADMIN_PASSWORD: "${LAB_AWX_ADMIN_PASSWORD:-awxadmin123}"
+      SECRET_KEY: "${LAB_AWX_SECRET_KEY:-lab-awx-secret-key-change-me}"
+    volumes:
+      - ./awx/settings.py:/etc/tower/settings.py:ro
+      - awx_projects:/var/lib/awx/projects
+      - awx_receptor:/var/run/receptor
+    depends_on:
+      awx-postgres:
+        condition: service_healthy
+      awx-redis:
+        condition: service_healthy
+
+  awx-task:
+    image: quay.io/ansible/awx:24.6.1
+    container_name: awx-task
+    hostname: awx-task
+    command: /usr/bin/launch_awx_task.sh
+    networks:
+      lab-network:
+        ipv4_address: 10.89.0.33
+    environment:
+      DATABASE_HOST: awx-postgres
+      DATABASE_NAME: awx
+      DATABASE_PASSWORD: "${LAB_AWX_PG_PASSWORD:-awxpass123}"
+      DATABASE_USER: awx
+      DATABASE_PORT: "5432"
+      SECRET_KEY: "${LAB_AWX_SECRET_KEY:-lab-awx-secret-key-change-me}"
+      SUPERVISOR_WEB_CONFIG_PATH: /etc/supervisord.conf
+    volumes:
+      - ./awx/settings.py:/etc/tower/settings.py:ro
+      - awx_projects:/var/lib/awx/projects
+      - awx_receptor:/var/run/receptor
+    depends_on:
+      awx-postgres:
+        condition: service_healthy
+      awx-redis:
+        condition: service_healthy
+      awx-web:
+        condition: service_started
+
+volumes:
+  awx_postgres_data:
+  awx_redis_data:
+  awx_projects:
+  awx_receptor:
+
 networks:
   lab-network:
     driver: bridge

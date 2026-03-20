@@ -7,7 +7,7 @@ SPLUNK_HOST="localhost"
 SPLUNK_MGMT_PORT="8089"
 SPLUNK_USER="admin"
 SPLUNK_PASS="${LAB_SPLUNK_PASSWORD:-ChangeMeNow1!}"
-INDEXES=("ping_data" "ps_data")
+INDEXES=("ping_data" "ps_data" "otel_metrics")
 
 MAX_ATTEMPTS=60
 ATTEMPT=0

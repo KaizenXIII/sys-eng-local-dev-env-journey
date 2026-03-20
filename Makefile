@@ -1,5 +1,5 @@
 .PHONY: all check-deps check-ports ssh-keys build-nodes up down splunk-index \
-       install-uf ping ps test clean nuke lifecycle stop restart status logs log-rotate help
+       install-uf ping ps test clean nuke lifecycle stop restart status logs log-rotate otel awx help
 
 PODMAN := podman
 ANSIBLE_DIR := ansible
@@ -10,10 +10,18 @@ SSH_KEY := $(ANSIBLE_DIR)/keys/lab_node
 LAB_SPLUNK_PASSWORD ?= ChangeMeNow1!
 LAB_ROOT_PASSWORD ?= changeme
 LAB_HEC_TOKEN ?= a1b2c3d4-e5f6-7890-abcd-ef1234567890
+LAB_AWX_PG_PASSWORD ?= awxpass123
+LAB_AWX_ADMIN_USER ?= admin
+LAB_AWX_ADMIN_PASSWORD ?= awxadmin123
+LAB_AWX_SECRET_KEY ?= lab-awx-secret-key-change-me
 
 # Export for compose.yml env var substitution
 export LAB_SPLUNK_PASSWORD
 export LAB_HEC_TOKEN
+export LAB_AWX_PG_PASSWORD
+export LAB_AWX_ADMIN_USER
+export LAB_AWX_ADMIN_PASSWORD
+export LAB_AWX_SECRET_KEY
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -61,6 +69,27 @@ down: ## Stop and remove all containers via compose
 
 splunk-index: ## Create Splunk indexes (waits for readiness)
 	@LAB_SPLUNK_PASSWORD=$(LAB_SPLUNK_PASSWORD) bash $(SCRIPTS_DIR)/setup_splunk_index.sh
+
+awx: ## Start AWX (Ansible web UI) — Postgres, Redis, Web, Task
+	@echo "Starting AWX..."
+	$(PODMAN) compose up -d awx-postgres awx-redis awx-web awx-task
+	@echo "Waiting for AWX to be ready..."
+	@attempt=0; \
+	while ! curl -sk -o /dev/null -w "%{http_code}" http://localhost:8085/api/v2/ping/ 2>/dev/null | grep -q "200"; do \
+		attempt=$$((attempt + 1)); \
+		if [ $$attempt -ge 60 ]; then \
+			echo "ERROR: AWX not ready after 60 attempts (10 min). Check: podman logs awx-web"; \
+			exit 1; \
+		fi; \
+		echo "  AWX not ready yet, retrying in 10s... ($$attempt/60)"; \
+		sleep 10; \
+	done
+	@echo "AWX is up — http://localhost:8085 (admin / $(LAB_AWX_ADMIN_PASSWORD))"
+
+otel: ## Start the OTel Collector container
+	@echo "Starting OTel Collector..."
+	$(PODMAN) compose up -d otel-collector
+	@echo "OTel Collector is up (OTLP gRPC :4317, HTTP :4318)."
 
 install-uf: ## Install Splunk Universal Forwarder on all nodes
 	@echo "Installing Splunk UF on lab nodes (arch: $(SPLUNK_UF_ARCH))..."
@@ -120,7 +149,7 @@ restart: ## Restart all containers
 clean: ## Stop and remove all containers, network, and images
 	$(PODMAN) compose down --remove-orphans 2>/dev/null || true
 	@# Force-remove by name in case compose lost track (project rename, etc.)
-	@for c in node1 node2 node3 splunk-standalone; do \
+	@for c in node1 node2 node3 splunk-standalone otel-collector awx-web awx-task awx-postgres awx-redis; do \
 		$(PODMAN) rm -f $$c 2>/dev/null || true; \
 	done
 	@# Remove any lab networks left behind
