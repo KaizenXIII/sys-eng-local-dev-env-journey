@@ -1,0 +1,9 @@
+[config]
+model = "gemini/gemini-2.0-flash"
+
+[pr_description]
+publish_labels = true
+add_original_user_description = true
+
+[pr_reviewer]
+extra_instructions = "Focus on security, infrastructure misconfigurations, and credential exposure. This is an infrastructure-as-code project using Podman, Ansible, and Splunk."
