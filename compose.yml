@@ -104,12 +104,13 @@ services:
     image: quay.io/ansible/awx:24.6.1
     container_name: awx-web
     hostname: awx-web
+    user: root
     command: /usr/bin/launch_awx_web.sh
     networks:
       lab-network:
         ipv4_address: 10.89.0.32
     ports:
-      - "8085:8052"
+      - "8085:80"
     environment:
       DATABASE_HOST: awx-postgres
       DATABASE_NAME: awx
@@ -121,6 +122,7 @@ services:
       SECRET_KEY: "${LAB_AWX_SECRET_KEY:-lab-awx-secret-key-change-me}"
     volumes:
       - ./awx/settings.py:/etc/tower/settings.py:ro
+      - ./awx/nginx.conf:/etc/nginx/nginx.conf:ro
       - awx_projects:/var/lib/awx/projects
       - awx_receptor:/var/run/receptor
     depends_on:
@@ -133,7 +135,8 @@ services:
     image: quay.io/ansible/awx:24.6.1
     container_name: awx-task
     hostname: awx-task
-    command: /usr/bin/launch_awx_task.sh
+    user: root
+    command: /opt/awx/launch_awx_task.sh
     networks:
       lab-network:
         ipv4_address: 10.89.0.33
@@ -144,9 +147,11 @@ services:
       DATABASE_USER: awx
       DATABASE_PORT: "5432"
       SECRET_KEY: "${LAB_AWX_SECRET_KEY:-lab-awx-secret-key-change-me}"
-      SUPERVISOR_WEB_CONFIG_PATH: /etc/supervisord.conf
     volumes:
       - ./awx/settings.py:/etc/tower/settings.py:ro
+      - ./awx/launch_awx_task.sh:/opt/awx/launch_awx_task.sh:ro
+      - ./awx/supervisord_task.conf:/opt/awx/supervisord_task.conf:ro
+      - ./awx/receptor.conf:/etc/receptor/receptor.conf:ro
       - awx_projects:/var/lib/awx/projects
       - awx_receptor:/var/run/receptor
     depends_on:

@@ -1,5 +1,9 @@
 import os
 
+SECRET_KEY = os.getenv('SECRET_KEY', 'lab-awx-secret-key-change-me')
+
+ALLOWED_HOSTS = ['*']
+
 DATABASES = {
     'default': {
         'ATOMIC_REQUESTS': True,
