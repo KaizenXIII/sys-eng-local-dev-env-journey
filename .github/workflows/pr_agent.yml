@@ -1,0 +1,33 @@
+name: PR Agent
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+jobs:
+  pr_agent:
+    runs-on: ubuntu-latest
+    name: PR Agent
+    if: ${{ github.event.pull_request.draft == false }}
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: read
+    steps:
+      - name: PR Describe
+        uses: qodo-ai/pr-agent@main
+        with:
+          command: describe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOGLE_AI_KEY: ${{ secrets.GOOGLE_AI_KEY }}
+          config.model: "gemini/gemini-2.0-flash"
+
+      - name: PR Review
+        uses: qodo-ai/pr-agent@main
+        with:
+          command: review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOGLE_AI_KEY: ${{ secrets.GOOGLE_AI_KEY }}
+          config.model: "gemini/gemini-2.0-flash"
